@@ -32,41 +32,50 @@ url_input = st.text_input("Blog Post URL to Audit:", placeholder="https://yourdo
 run_button = st.button("Run Comprehensive Audit", type="primary")
 
 async def fetch_page_and_check_links(target_url):
-    """Uses Playwright to render JavaScript and verify assets accurately."""
+    """Optimized Playwright execution for low-resource server environments."""
     async with async_playwright() as p:
-        # Launch Chromium headless with realistic desktop viewport & user-agent
+        # Launch Chromium with lightweight server-optimized flags
         browser = await p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-zygote",
+                "--single-process",
+                "--disable-extensions"
+            ]
         )
+        
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080}
+            viewport={"width": 1280, "height": 720}
         )
         page = await context.new_page()
         
-        # Navigate and wait for DOM network idle state (bypasses initial JS security challenges)
         try:
-            response = await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            # Change wait condition to domcontentloaded for significantly faster load times
+            response = await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
             status_code = response.status if response else 0
-            # Scroll to trigger lazy-loaded images/assets
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(1000)
+            
+            # Fast scroll to load dynamic assets
+            await page.evaluate("window.scrollBy(0, 1000)")
+            await page.wait_for_timeout(500)
             content = await page.content()
         except Exception as e:
             await browser.close()
             raise e
 
-        # Gather links & images to test status codes async
         soup = BeautifulSoup(content, "html.parser")
         parsed_url = urllib.parse.urlparse(target_url)
 
-        # Batch check images
+        # Extract elements
         imgs = soup.find_all("img")
-        img_urls = [urllib.parse.urljoin(target_url, img.get("src")) for img in imgs if img.get("src")]
+        img_urls = [urllib.parse.urljoin(target_url, img.get("src")) for img in imgs if img.get("src")][:8]
         
-        # Batch check links (limit to 15 to avoid throttling)
-        links = soup.find_all("a", href=True)[:15]
+        links = soup.find_all("a", href=True)[:10]  # Reduced batch limit to speed up checks
         link_data = []
         for link in links:
             href = link.get("href")
@@ -77,18 +86,18 @@ async def fetch_page_and_check_links(target_url):
             is_ext = parsed_url.netloc not in full_link
             link_data.append({"url": full_link, "is_ext": is_ext, "rel": rel})
 
-        # Helper to verify asset URLs concurrently inside Playwright context
+        # Fast parallel checker with 4s maximum execution window per link
         async def verify_url(url):
             try:
                 check_page = await context.new_page()
-                res = await check_page.goto(url, wait_until="commit", timeout=7000)
+                res = await check_page.goto(url, wait_until="commit", timeout=4000)
                 status = res.status if res else 404
                 await check_page.close()
                 return status
             except:
                 return 404
 
-        img_statuses = await asyncio.gather(*[verify_url(u) for u in img_urls[:10]])
+        img_statuses = await asyncio.gather(*[verify_url(u) for u in img_urls])
         link_statuses = await asyncio.gather(*[verify_url(l["url"]) for l in link_data])
 
         await browser.close()
