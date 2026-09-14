@@ -8,10 +8,12 @@ from spellchecker import SpellChecker
 import os
 import subprocess
 
-# Auto-install chromium binary on app startup (crucial for cloud environments like Streamlit Cloud)
 @st.cache_resource
 def install_playwright_browsers():
-    subprocess.run(["playwright", "install", "chromium"])
+    # Only run install if the directory doesn't already exist
+    cache_dir = os.path.expanduser("~/.cache/ms-playwright")
+    if not os.path.exists(cache_dir):
+        subprocess.run(["playwright", "install", "chromium", "--with-deps"])
 
 install_playwright_browsers()
 
