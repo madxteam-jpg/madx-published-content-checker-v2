@@ -10,10 +10,12 @@ import subprocess
 
 @st.cache_resource
 def install_playwright_browsers():
-    # Only run install if the directory doesn't already exist
-    cache_dir = os.path.expanduser("~/.cache/ms-playwright")
-    if not os.path.exists(cache_dir):
-        subprocess.run(["playwright", "install", "chromium", "--with-deps"])
+    # Force playwright to download all chromium headless executables
+    try:
+        subprocess.run(["playwright", "install", "chromium", "--with-deps"], check=True)
+    except Exception as e:
+        # Fallback if --with-deps throws an issue on unprivileged containers
+        subprocess.run(["playwright", "install", "chromium"], check=True)
 
 install_playwright_browsers()
 
